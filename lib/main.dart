@@ -1,30 +1,34 @@
+import 'package:flutter/foundation.dart';
+
 import 'package:animate_do/animate_do.dart';
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:jcalendar/biz/calendar.dart';
+import 'package:jcalendar/utils.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await windowManager.ensureInitialized();
-
-  // await WindowManagerPlus.ensureInitialized(args.isEmpty ? 0 : int.tryParse(args[0]) ?? 0);
-  const size = Size(1228, 890);
-  WindowOptions windowOptions = const WindowOptions(
-    size: size,
-    center: true,
-    // backgroundColor: Colors.transparent,
-    skipTaskbar: false,
-    // titleBarStyle: TitleBarStyle.hidden,
-  );
-  windowManager.waitUntilReadyToShow(windowOptions, () async {
-    await windowManager.show();
-    await windowManager.focus();
-    windowManager.setMaximizable(false);
-    windowManager.setResizable(false);
-  });
+  if (Util.isWindows()) {
+    await windowManager.ensureInitialized();
+    // await WindowManagerPlus.ensureInitialized(args.isEmpty ? 0 : int.tryParse(args[0]) ?? 0);
+    const size = Size(1228, 890);
+    WindowOptions windowOptions = const WindowOptions(
+      size: size,
+      center: true,
+      // backgroundColor: Colors.transparent,
+      skipTaskbar: false,
+      // titleBarStyle: TitleBarStyle.hidden,
+    );
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      await windowManager.show();
+      await windowManager.focus();
+      windowManager.setMaximizable(false);
+      windowManager.setResizable(false);
+    });
+  }
   runApp(const Application());
 }
 
@@ -71,6 +75,9 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    if (Util.isWeb()) {
+      BrowserContextMenu.disableContextMenu();
+    }
     calendar = CalendarStore(date: DateTime.now());
     calendar.onRefresh((_) {
       setState(() {
@@ -521,146 +528,164 @@ class _HomePageState extends State<HomePage> {
         ));
   }
 
+  Widget buildContent() {
+    return Row(
+      children: [
+        Expanded(
+          flex: 1,
+          child: Stack(
+            children: [
+              NotificationListener(
+                  onNotification: (ScrollNotification scrollInfo) {
+                    if (!_mounted) {
+                      return true;
+                    }
+                    if (scrollInfo.metrics.atEdge && scrollInfo.metrics.pixels == 0) {
+                      _curY = scrollInfo.metrics.pixels;
+                      calendar.shiftMonths();
+                    }
+                    if (scrollInfo.metrics.atEdge && scrollInfo.metrics.pixels == scrollInfo.metrics.maxScrollExtent) {
+                      _curY = scrollInfo.metrics.pixels;
+                      calendar.appendMonths();
+                    }
+                    return true;
+                  },
+                  child: ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      controller: _scrollController,
+                      itemCount: calendar.months.length,
+                      itemBuilder: (context, index) {
+                        return buildSubCalendarView(calendar.months[index]);
+                      })),
+              Positioned(
+                bottom: 8,
+                right: 8,
+                child: FadeInRight(
+                  child: Container(
+                    padding: EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.grey[10],
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
+                    child: Tooltip(
+                      message: '回到当前月',
+                      displayHorizontally: true,
+                      useMousePosition: false,
+                      style: const TooltipThemeData(preferBelow: true),
+                      child: IconButton(
+                        icon: Icon(
+                          FluentIcons.calendar_reply,
+                          color: Colors.grey[80],
+                          size: 24.0,
+                        ),
+                        onPressed: () {
+                          // calendar.showToday();
+                          calendar.scrollToToday();
+                          // _scrollToCurMonth();
+                        },
+                      ),
+                    ),
+                  ),
+                ),
+              )
+            ],
+          ),
+        ),
+        Expanded(
+            flex: 3,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              // decoration: BoxDecoration(border: Border(left: BorderSide(color: Colors.grey[20]))),
+              child: Column(children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Column(
+                      children: [
+                        Row(children: [
+                          Text(calendar.curMonth.monthText, style: TextStyle(color: Colors.blue.darkest, fontSize: 48)),
+                          const SizedBox(width: 12),
+                          Tooltip(
+                            message: '上个月',
+                            displayHorizontally: true,
+                            useMousePosition: false,
+                            style: const TooltipThemeData(preferBelow: true),
+                            child: IconButton(
+                              icon: const Icon(
+                                FluentIcons.up,
+                                size: 36.0,
+                              ),
+                              onPressed: () {
+                                calendar.gotoPrevMonth();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Tooltip(
+                            message: '下个月',
+                            displayHorizontally: true,
+                            useMousePosition: false,
+                            style: const TooltipThemeData(preferBelow: true),
+                            child: IconButton(
+                              icon: const Icon(
+                                FluentIcons.down,
+                                size: 36.0,
+                              ),
+                              onPressed: () {
+                                calendar.gotoNextMonth();
+                              },
+                            ),
+                          ),
+                          const SizedBox(width: 48),
+                          Tooltip(
+                            message: '今天 ${calendar.today.text}',
+                            displayHorizontally: true,
+                            useMousePosition: false,
+                            style: const TooltipThemeData(preferBelow: true),
+                            child: IconButton(
+                              icon: const Icon(
+                                FluentIcons.goto_today,
+                                size: 36.0,
+                              ),
+                              onPressed: () {
+                                calendar.setToday(DateTime.now());
+                                calendar.showToday();
+                              },
+                            ),
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(
+                  height: 24,
+                ),
+                Expanded(child: buildMainCalendarView()),
+              ]),
+            )),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
         padding: const EdgeInsets.only(bottom: 24),
-        content: Row(
-          children: [
-            Expanded(
-              flex: 1,
-              child: Stack(
-                children: [
-                  NotificationListener(
-                      onNotification: (ScrollNotification scrollInfo) {
-                        if (!_mounted) {
-                          return true;
-                        }
-                        if (scrollInfo.metrics.atEdge && scrollInfo.metrics.pixels == 0) {
-                          _curY = scrollInfo.metrics.pixels;
-                          calendar.shiftMonths();
-                        }
-                        if (scrollInfo.metrics.atEdge && scrollInfo.metrics.pixels == scrollInfo.metrics.maxScrollExtent) {
-                          _curY = scrollInfo.metrics.pixels;
-                          calendar.appendMonths();
-                        }
-                        return true;
-                      },
-                      child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          controller: _scrollController,
-                          itemCount: calendar.months.length,
-                          itemBuilder: (context, index) {
-                            return buildSubCalendarView(calendar.months[index]);
-                          })),
-                  Positioned(
-                    bottom: 8,
-                    right: 8,
-                    child: FadeInRight(
-                      child: Container(
-                        padding: EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[10],
-                          borderRadius: BorderRadius.all(Radius.circular(8)),
-                        ),
-                        child: Tooltip(
-                          message: '回到当前月',
-                          displayHorizontally: true,
-                          useMousePosition: false,
-                          style: const TooltipThemeData(preferBelow: true),
-                          child: IconButton(
-                            icon: Icon(
-                              FluentIcons.calendar_reply,
-                              color: Colors.grey[80],
-                              size: 24.0,
-                            ),
-                            onPressed: () {
-                              // calendar.showToday();
-                              calendar.scrollToToday();
-                              // _scrollToCurMonth();
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  )
-                ],
-              ),
-            ),
-            Expanded(
-                flex: 3,
+        content: (() {
+          if (Util.isWeb()) {
+            return Center(
                 child: Container(
-                  padding: const EdgeInsets.all(16),
-                  // decoration: BoxDecoration(border: Border(left: BorderSide(color: Colors.grey[20]))),
-                  child: Column(children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        Column(
-                          children: [
-                            Row(children: [
-                              Text(calendar.curMonth.monthText, style: TextStyle(color: Colors.blue.darkest, fontSize: 48)),
-                              const SizedBox(width: 12),
-                              Tooltip(
-                                message: '上个月',
-                                displayHorizontally: true,
-                                useMousePosition: false,
-                                style: const TooltipThemeData(preferBelow: true),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    FluentIcons.up,
-                                    size: 36.0,
-                                  ),
-                                  onPressed: () {
-                                    calendar.gotoPrevMonth();
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Tooltip(
-                                message: '下个月',
-                                displayHorizontally: true,
-                                useMousePosition: false,
-                                style: const TooltipThemeData(preferBelow: true),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    FluentIcons.down,
-                                    size: 36.0,
-                                  ),
-                                  onPressed: () {
-                                    calendar.gotoNextMonth();
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 48),
-                              Tooltip(
-                                message: '今天 ${calendar.today.text}',
-                                displayHorizontally: true,
-                                useMousePosition: false,
-                                style: const TooltipThemeData(preferBelow: true),
-                                child: IconButton(
-                                  icon: const Icon(
-                                    FluentIcons.goto_today,
-                                    size: 36.0,
-                                  ),
-                                  onPressed: () {
-                                    calendar.setToday(DateTime.now());
-                                    calendar.showToday();
-                                  },
-                                ),
-                              ),
-                            ]),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(
-                      height: 24,
-                    ),
-                    Expanded(child: buildMainCalendarView()),
-                  ]),
-                )),
-          ],
-        ));
+              width: 1080,
+              height: 786,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey[80]),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: buildContent(),
+            ));
+          }
+          return buildContent();
+        })());
   }
 }

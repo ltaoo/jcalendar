@@ -16,3 +16,13 @@
 
 
 ![应用截图](docs/screenshot1.png)
+
+## 开发
+
+## 打包
+
+### web
+
+```bash
+flutter build web --base-href "/jcalendar/"
+```
