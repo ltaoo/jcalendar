@@ -42,6 +42,7 @@ class CalendarDate {
   int get year => date.year;
   int get month => date.month;
   String get day => date.day.toString();
+  String get lunarText => '${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}';
   String get lunarDay {
     if (lunar.getDay() == 1) {
       return '${lunar.getMonthInChinese()}月${lunar.getDayInChinese()}';
@@ -298,17 +299,81 @@ class CalendarStore {
     return months;
   }
 
+  List<CalendarDate> pickDatesOfMonth(int yearNum, int monthNum, List<CalendarMonth> months) {
+    CalendarMonth matched = months.singleWhere((m) => m.year == yearNum && m.month == monthNum, orElse: () => CalendarMonth(year: 0, month: 0, dates: []));
+    if (matched.year == 0) {
+      return [];
+    }
+    int index = months.indexOf(matched);
+    CalendarMonth prevMonth = months.elementAt(index - 1);
+    CalendarMonth nextMonth = months.elementAt(index + 1);
+
+    List<CalendarDate> validDates = matched.dates.where((d) => !d.isHidden).toList();
+    final firstDayOfMonth = validDates.first;
+    final lastDayOfMonth = validDates.last;
+    final weekdayOfFirstDay = firstDayOfMonth.weekday;
+    final List<CalendarDate> dates = [];
+    if (kDebugMode) {
+      print("before add days of prev month $weekdayOfFirstDay ${dateFormat.format(firstDayOfMonth.date)}");
+    }
+    for (int i = 1; i < weekdayOfFirstDay; i++) {
+      DateTime d = firstDayOfMonth.date.subtract(Duration(days: weekdayOfFirstDay - i));
+      if (kDebugMode) {
+        print("$i - ${prevMonth.dates.length}");
+      }
+      if (prevMonth.dates.isNotEmpty) {
+        CalendarDate v = prevMonth.dates.where((dd) => !dd.isHidden).singleWhere((dd) => dd.date.day == d.day, orElse: () => CalendarDate(date: d, hidden: true));
+        dates.add(v);
+      }
+    }
+    if (kDebugMode) {
+      print("add cur month");
+    }
+    dates.addAll(validDates);
+    if (kDebugMode) {
+      print("before add days of next month ${lastDayOfMonth.weekday}  ${dateFormat.format(lastDayOfMonth.date)}");
+    }
+    for (int i = 0; i < 7 - lastDayOfMonth.weekday; i++) {
+      DateTime d = lastDayOfMonth.date.add(Duration(days: i + 1));
+      if (nextMonth.dates.isNotEmpty) {
+        CalendarDate v = nextMonth.dates.where((dd) => !dd.isHidden).singleWhere((dd) => dd.date.day == d.day, orElse: () => CalendarDate(date: d, hidden: true));
+        if (kDebugMode) {
+          print("add days of next month");
+        }
+        dates.add(v);
+      }
+    }
+    if (dates.length == 7 * 5) {
+      final lastDay = dates[dates.length - 1];
+      if (kDebugMode) {
+        print("append extra dates");
+      }
+      for (int i = 0; i < 7; i++) {
+        DateTime d = lastDay.date.add(Duration(days: i + 1));
+        if (nextMonth.dates.isNotEmpty) {
+          CalendarDate v = nextMonth.dates.where((dd) => !dd.isHidden).singleWhere((dd) => dd.date.day == d.day, orElse: () => CalendarDate(date: d, hidden: true));
+          dates.add(v);
+        }
+      }
+    }
+    return dates;
+  }
+
   final bus = EventEmitter();
 
   CalendarStore({required DateTime date}) {
     months = fetchMonthsPrevAndNext(date, 3);
     curMonth = months.singleWhere((d) => d.isHighlight, orElse: () => CalendarMonth(year: date.year, month: date.month, dates: []));
-    curDate = curMonth.dates.singleWhere((d) => d.isHighlight, orElse: () => CalendarDate(date: date));
+    dates = pickDatesOfMonth(curMonth.year, curMonth.month, months);
+    curDate = dates.singleWhere((d) => d.isHighlight, orElse: () => CalendarDate(date: date));
+    today = curDate;
     title = monthFormat.format(curDate.date);
   }
 
   String title = "";
   List<CalendarMonth> months = [];
+  List<CalendarDate> dates = [];
+  late CalendarDate today;
   late CalendarMonth curMonth;
   late CalendarDate curDate;
   int get curMonthIndex => months.indexWhere((m) => m.unique == curMonth.unique);
@@ -321,7 +386,7 @@ class CalendarStore {
     pending = true;
     CalendarMonth firstMonth = months.elementAt(0);
     List<CalendarMonth> newMonths = [];
-    for (int i = 3; i > 0; i--) {
+    for (int i = 5; i > 0; i--) {
       bool isCurMonth = false;
       DateTime d1 = DateTime(firstMonth.year, firstMonth.month - i, 1);
       final List<CalendarDate> dates1 = fetchSpecialMonthDates(d1, FetchSpecialMonthDatesParam(highlight: isCurMonth));
@@ -345,7 +410,7 @@ class CalendarStore {
     pending = true;
     CalendarMonth lastMonth = months.last;
     List<CalendarMonth> newMonths = [];
-    for (int i = 1; i <= 3; i++) {
+    for (int i = 1; i <= 5; i++) {
       bool isCurMonth = false;
       DateTime d2 = DateTime(lastMonth.year, lastMonth.month + i, 1);
       final List<CalendarDate> dates2 = fetchSpecialMonthDates(d2, FetchSpecialMonthDatesParam(highlight: isCurMonth));
@@ -366,19 +431,22 @@ class CalendarStore {
   gotoPrevMonth() {
     int curMonthNum = curMonth.month;
     int prevMonthNum = curMonthNum - 1;
+    int index = months.indexOf(curMonth);
+    if (index <= 3) {
+      shiftMonths();
+    }
+    DateTime prev = DateTime(curMonth.year, prevMonthNum, 1);
     if (kDebugMode) {
       print("gotoPrevMonth - $prevMonthNum");
-    }
-    if (prevMonthNum <= 0) {
-      return;
     }
     if (months.isEmpty) {
       return;
     }
-    curMonth = months.singleWhere((m) => m.month == curMonth.month - 1, orElse: () => CalendarMonth(year: curMonth.year, month: curMonth.month, dates: []));
+    curMonth = months.singleWhere((m) => m.year == prev.year && m.month == prev.month, orElse: () => CalendarMonth(year: prev.year, month: prev.month, dates: []));
     if (curMonth.dates.isEmpty) {
       return;
     }
+    dates = pickDatesOfMonth(curMonth.year, curMonth.month, months);
     if (kDebugMode) {
       print("before curMonth.dates.singleWhere - ${curMonth.dates.length}");
     }
@@ -390,19 +458,22 @@ class CalendarStore {
   gotoNextMonth() {
     int curMonthNum = curMonth.month;
     int nextMonthNum = curMonthNum + 1;
+    int index = months.indexOf(curMonth);
+    if (months.length - index <= 3) {
+      appendMonths();
+    }
+    DateTime next = DateTime(curMonth.year, nextMonthNum, 1);
     if (kDebugMode) {
       print("gotoNextMonth - $nextMonthNum");
-    }
-    if (nextMonthNum > 12) {
-      return;
     }
     if (months.isEmpty) {
       return;
     }
-    curMonth = months.singleWhere((m) => m.month == curMonth.month + 1, orElse: () => CalendarMonth(year: curMonth.year, month: curMonth.month, dates: []));
+    curMonth = months.singleWhere((m) => m.year == next.year && m.month == next.month, orElse: () => CalendarMonth(year: next.year, month: next.month, dates: []));
     if (curMonth.dates.isEmpty) {
       return;
     }
+    dates = pickDatesOfMonth(curMonth.year, curMonth.month, months);
     if (kDebugMode) {
       print("before curMonth.dates.singleWhere - ${curMonth.dates.length}");
     }
@@ -416,16 +487,9 @@ class CalendarStore {
       return;
     }
     if (areMonthEqual(date, curDate.date)) {
-      // curDate = CalendarDate(date: date);
       curDate.setHighlight(false);
       curDate.setSelected(false);
-      // if (kDebugMode) {
-      //   print("before curMonth.dates.single - ${curDate.day}");
-      // }
       curDate = curMonth.dates.singleWhere((d) => d.date.day == date.day, orElse: () => CalendarDate(date: curDate.date));
-      // if (kDebugMode) {
-      //   print("after curMonth.dates.single - ${curDate.day}");
-      // }
       curDate.setHighlight(true);
       curDate.setSelected(true);
       bus.emit("refresh", {});
@@ -440,26 +504,112 @@ class CalendarStore {
     bus.emit("refresh", {});
   }
 
+  void setCurMonth() {}
+
   setDateHover(CalendarDate date, bool hover) {
     date.setHover(hover);
     bus.emit("refresh", {});
   }
 
-  clickDate(CalendarDate date) {
+  setToday(DateTime t) {
+    if (areDateEqual(t, today.date)) {
+      return;
+    }
+    CalendarMonth matched = months.singleWhere((m) => m.year == t.year && m.month == t.month, orElse: () => CalendarMonth(year: t.year, month: t.month, dates: []));
+    CalendarDate matched2 = matched.dates.singleWhere((d) => d.date.day == t.day, orElse: () => CalendarDate(date: t));
+    matched2.setHighlight(true);
+    today = matched2;
+  }
+
+  clickDate(CalendarDate date, bool needChangeMonth) {
     curDate.setSelected(false);
-    // bool isSameMonth = curDate.month == date.month;
-    // if (!isSameMonth) {
-    // }
-    // CalendarMonth mm = months.firstWhere((m) => m.month == date.month);
-    // CalendarDate dd = mm.dates.firstWhere((d) => d.day == date.day);
-    // CalendarDate d2 = curMonth.dates.firstWhere((d) => areDateEqual(d.date, date.date));
+    if (kDebugMode) {
+      print("[BIZ]clickDate");
+    }
+    bool isSameMonth = curMonth.year == date.year && curMonth.month == date.month;
+    if (kDebugMode) {
+      print("[BIZ]clickDate - isSameMonth? $isSameMonth / needChangeMonth $needChangeMonth");
+    }
+    if (!isSameMonth && needChangeMonth == true) {
+      curMonth = months.singleWhere((m) => m.year == date.year && m.month == date.month, orElse: () => CalendarMonth(year: date.year, month: date.month, dates: []));
+      if (curMonth.dates.isEmpty) {
+        if (kDebugMode) {
+          print("[BIZ]clickDate error1");
+        }
+        return;
+      }
+      if (kDebugMode) {
+        print("[BIZ]clickDate update dates");
+      }
+      dates = pickDatesOfMonth(curMonth.year, curMonth.month, months);
+    }
     curDate = date;
-    // d2.setSelected(true);
-    // dd.setSelected(true);
-    // dd.setSelected(true);
-    // curDate = dd;
     curDate.setSelected(true);
     bus.emit("refresh", {});
+  }
+
+  fetchTodayMonthIndex() {
+    int index = months.indexWhere((m) => m.year == today.year && m.month == today.month);
+    return index;
+  }
+
+  showToday() {
+    clickDate(today, true);
+    scrollToToday();
+  }
+
+  scrollToToday() {
+    bus.emit("scroll-to-today", {});
+  }
+
+  fetchNextMonth(CalendarMonth m) {
+    int index = months.indexOf(m);
+    int nextIndex = index + 1;
+    // if (nextIndex >= months.length) {
+
+    // }
+    return months[nextIndex];
+  }
+
+  fetchNextDay(CalendarDate day) {
+    CalendarMonth matched = months.singleWhere((m) => m.year == day.year && m.month == day.month, orElse: () => CalendarMonth(year: day.year, month: day.month, dates: []));
+    List<CalendarDate> validDates = matched.dates.where((dd) => !dd.isHidden).toList();
+    int index = validDates.indexOf(day);
+    int nextIndex = index + 1;
+    if (nextIndex >= validDates.length) {
+      matched = fetchNextMonth(matched);
+      validDates = matched.dates.where((dd) => !dd.isHidden).toList();
+      nextIndex = 0;
+    }
+    return validDates[nextIndex];
+  }
+
+  int calculateTotalDays(CalendarDate start, CalendarDate end) {
+    return end.date.difference(start.date).inDays;
+  }
+
+  List<int> calculateWorkingDays(CalendarDate start, CalendarDate end) {
+    // CalendarMonth startMonth =
+    //     months.singleWhere((m) => m.year == start.year && m.month == start.month, orElse: () => CalendarMonth(year: start.year, month: start.month, dates: []));
+    // CalendarMonth endMonth = months.singleWhere((m) => m.year == end.year && m.month == end.month, orElse: () => CalendarMonth(year: start.year, month: start.month, dates: []));
+    int totalDays = calculateTotalDays(start, end);
+    int count = 0;
+    int workingDays = 0;
+
+    CalendarDate cur = start;
+    while (cur != end && count < totalDays) {
+      if (kDebugMode) {
+        print("${cur.text} - ${cur.restType}");
+      }
+      if (cur.restType == CalendarDateRestType.holidayWork || cur.restType == CalendarDateRestType.normalWork) {
+        workingDays++;
+      }
+      count += 1;
+      cur = fetchNextDay(cur);
+    }
+    // for (DateTime date = start.date; date.isBefore(end.date) || date.isAtSameMomentAs(end.date); date = date.add(Duration(days: 1))) {
+    // }
+    return [workingDays, totalDays];
   }
 
   refresh() {
@@ -472,6 +622,10 @@ class CalendarStore {
 
   onMonthCountChange(Handler handler) {
     return bus.on('refresh-months', handler);
+  }
+
+  onScrollToToday(Handler handler) {
+    return bus.on('scroll-to-today', handler);
   }
 
   onRefresh(Handler handler) {

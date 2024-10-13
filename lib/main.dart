@@ -22,6 +22,8 @@ void main() async {
   windowManager.waitUntilReadyToShow(windowOptions, () async {
     await windowManager.show();
     await windowManager.focus();
+    windowManager.setMaximizable(false);
+    windowManager.setResizable(false);
   });
   runApp(const Application());
 }
@@ -39,7 +41,7 @@ class Application extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FluentApp(
-      // title: '极简日历',
+      // title: '简日历',
       debugShowCheckedModeBanner: false,
       theme: FluentThemeData(scaffoldBackgroundColor: Colors.grey[10], brightness: Brightness.light),
       scrollBehavior: NoScrollbar(),
@@ -96,6 +98,9 @@ class _HomePageState extends State<HomePage> {
         _scrollToIndex(index);
       }
     });
+    calendar.onScrollToToday((_) {
+      _scrollToCurMonth();
+    });
     Future.delayed(Duration(seconds: 1), () {
       _scrollToCurMonth();
       _mounted = true;
@@ -103,7 +108,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   void _scrollToCurMonth() {
-    int index = calendar.curMonthIndex;
+    int index = calendar.fetchTodayMonthIndex();
     if (index != -1) {
       double offset = index * itemHeight;
       _initialY = offset;
@@ -150,83 +155,142 @@ class _HomePageState extends State<HomePage> {
                 if (date.isHidden) {
                   return const MouseRegion();
                 }
+                FlyoutController controller = FlyoutController();
+                final contextAttachKey = GlobalKey();
                 return MouseRegion(
-                  cursor: SystemMouseCursors.click,
+                  // cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     onTap: () {
-                      calendar.clickDate(date);
+                      calendar.clickDate(date, true);
                     },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        // border: Border.all(color: Colors.black, width: 0.5),
-                        border: Border.all(color: (() {
-                          if (date.isSelected) {
-                            if (date.isHover) {
-                              return Colors.blue.darkest;
-                            }
-                            return Colors.blue;
-                          }
-                          // if (date.day == calendar.curDate.day) {
-                          //   return Colors.blue;
-                          // }
-                          // if (date.isHover) {
-                          //   return Colors.blue;
-                          // }
-                          return Colors.transparent;
-                        })()),
-                      ),
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Center(
-                              child: Column(children: [
-                            Text(
-                              date.day,
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: (() {
-                                    if (date.isSelected) {
-                                      return Colors.blue;
-                                    }
-                                    // if (areDateEqual(date.date, calendar.curDate.date)) {
-                                    //   return Colors.blue.darkest;
-                                    // }
-                                    if (date.isHidden) {
-                                      return Colors.grey[10];
-                                    }
-                                    return Colors.grey[120];
-                                  })()),
+                    onSecondaryTapUp: (d) {
+                      final targetContext = contextAttachKey.currentContext;
+                      if (targetContext == null) {
+                        return;
+                      }
+                      final box = targetContext.findRenderObject() as RenderBox;
+                      final pp = box.localToGlobal(Offset.zero);
+                      final x = pp.dx + box.size.width;
+                      final y = pp.dy;
+                      // int totalDays = calendar.calculateTotalDays(calendar.curDate, date);
+                      List<int> days1 = calendar.calculateWorkingDays(calendar.curDate, date);
+                      List<int> days2 = calendar.today == calendar.curDate ? [] : calendar.calculateWorkingDays(calendar.today, date);
+                      controller.showFlyout(
+                        barrierColor: Colors.black.withOpacity(0.1),
+                        position: Offset(x, y),
+                        builder: (context) {
+                          return FlyoutContent(
+                            child: Container(
+                              width: 360.0,
+                              height: 240,
+                              padding: EdgeInsets.all(12),
+                              child: Column(
+                                // mainAxisAlignment: MainAxisAlignment.start,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${date.text}',
+                                    style: TextStyle(fontSize: 24),
+                                  ),
+                                  Text(
+                                    '${date.lunarText}  ${date.festival}',
+                                    textAlign: TextAlign.left,
+                                    style: TextStyle(fontSize: 12),
+                                  ),
+                                  SizedBox(height: 12),
+                                  Divider(),
+                                  SizedBox(height: 12),
+                                  Text("${calendar.curDate.text} 到该天还有 ${days1[1]} 天，${days1[0]} 个工作日"),
+                                  SizedBox(height: 4),
+                                  days2.isEmpty ? Container() : Text("今天到该天还有 ${days2[1]} 天，${days2[0]} 个工作日")
+                                ],
+                              ),
                             ),
-                          ])),
-                          (() {
-                            if (date.isHidden) {
-                              return Positioned(child: Container());
-                            }
-                            if (date.restType == CalendarDateRestType.holidayRest) {
-                              return Positioned(
-                                  right: 2,
-                                  top: 2,
-                                  child: Container(
-                                    width: 4,
-                                    height: 4,
-                                    decoration: BoxDecoration(color: Colors.green.light, borderRadius: BorderRadius.circular(12)),
-                                  ));
-                            }
-                            if (date.restType == CalendarDateRestType.holidayWork) {
-                              return Positioned(
-                                  right: 2,
-                                  top: 2,
-                                  child: Container(
-                                    width: 4,
-                                    height: 4,
-                                    decoration: BoxDecoration(color: Colors.red.light, borderRadius: BorderRadius.circular(12)),
-                                  ));
-                            }
-                            return Positioned(child: Container());
-                          })(),
-                        ],
-                      ),
-                    ),
+                          );
+                        },
+                      );
+                    },
+                    child: FlyoutTarget(
+                        key: contextAttachKey,
+                        controller: controller,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            // border: Border.all(color: Colors.black, width: 0.5),
+                            color: (() {
+                              if (date.isHover) {
+                                return Colors.grey[30];
+                              }
+                              return Colors.grey[10];
+                            })(),
+                          ),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              date.isSelected
+                                  ? Positioned(child: Container(width: 16, height: 16, decoration: BoxDecoration(color: Colors.blue, borderRadius: BorderRadius.circular(16))))
+                                  : Positioned(child: Container()),
+                              Align(
+                                child: Text(
+                                  (() {
+                                    if (date.isSelected) {
+                                      return date.day;
+                                    }
+                                    if (date.festival == "除夕") {
+                                      return date.festival;
+                                    }
+                                    return date.day;
+                                  })(),
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: (() {
+                                        if (date.isSelected) {
+                                          return Colors.white;
+                                        }
+                                        if (date.festival == "除夕") {
+                                          return Colors.red;
+                                        }
+                                        if (date.isHighlight) {
+                                          return Colors.blue;
+                                        }
+                                        // if (areDateEqual(date.date, calendar.curDate.date)) {
+                                        //   return Colors.blue.darkest;
+                                        // }
+                                        if (date.isHidden) {
+                                          return Colors.grey[10];
+                                        }
+                                        return Colors.grey[120];
+                                      })()),
+                                ),
+                              ),
+                              (() {
+                                if (date.isHidden) {
+                                  return Positioned(child: Container());
+                                }
+                                if (date.restType == CalendarDateRestType.holidayRest) {
+                                  return Positioned(
+                                      right: 8,
+                                      top: 8,
+                                      child: Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(color: Colors.green.light, borderRadius: BorderRadius.circular(12)),
+                                      ));
+                                }
+                                if (date.restType == CalendarDateRestType.holidayWork) {
+                                  return Positioned(
+                                      right: 8,
+                                      top: 8,
+                                      child: Container(
+                                        width: 4,
+                                        height: 4,
+                                        decoration: BoxDecoration(color: Colors.red.light, borderRadius: BorderRadius.circular(12)),
+                                      ));
+                                }
+                                return Positioned(child: Container());
+                              })(),
+                            ],
+                          ),
+                        )),
                   ),
                   onEnter: (_) {
                     calendar.setDateHover(date, true);
@@ -234,6 +298,7 @@ class _HomePageState extends State<HomePage> {
                   onExit: (_) {
                     calendar.setDateHover(date, false);
                   },
+                  onHover: (_) {},
                 );
               },
             )),
@@ -241,7 +306,7 @@ class _HomePageState extends State<HomePage> {
         ));
   }
 
-  Widget buildMainCalendarView(CalendarMonth store) {
+  Widget buildMainCalendarView() {
     return Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(boxShadow: [BoxShadow(color: Colors.grey[20])], borderRadius: const BorderRadius.all(Radius.circular(24))),
@@ -249,7 +314,7 @@ class _HomePageState extends State<HomePage> {
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: store.weekdays
+              children: calendar.curMonth.weekdays
                   .map((day) => Container(
                         padding: const EdgeInsets.all(16),
                         child: Stack(
@@ -274,14 +339,14 @@ class _HomePageState extends State<HomePage> {
                 // decoration: BoxDecoration(border: Border.all(color: Colors.black, width: 0.5)),
                 child: GridView.builder(
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 7, childAspectRatio: 16 / 14),
-              itemCount: store.dates.length,
+              itemCount: calendar.dates.length,
               itemBuilder: (context, index) {
-                final date = store.dates[index];
+                final date = calendar.dates[index];
                 return MouseRegion(
-                  cursor: SystemMouseCursors.click,
+                  // cursor: SystemMouseCursors.click,
                   child: GestureDetector(
                     onTap: () {
-                      calendar.clickDate(date);
+                      calendar.clickDate(date, false);
                     },
                     child: Stack(
                       alignment: Alignment.center,
@@ -306,7 +371,8 @@ class _HomePageState extends State<HomePage> {
                             if (date.isHover) {
                               return Colors.grey[30];
                             }
-                            if (date.isHidden) {
+                            if (date.month != calendar.curMonth.month) {
+                              // if (date.isHidden) {
                               return Colors.grey[20];
                             }
                             return Colors.white;
@@ -328,7 +394,7 @@ class _HomePageState extends State<HomePage> {
                               child: Column(children: [
                             Text(
                               (() {
-                                if (date.isSelected && date.isHidden) {
+                                if (date.isSelected && date.month != calendar.curMonth.month) {
                                   return '${date.month}/${date.day}';
                                 }
                                 return date.day;
@@ -345,7 +411,8 @@ class _HomePageState extends State<HomePage> {
                                     // if (date.day == calendar.curDate.day) {
                                     //   return Colors.white;
                                     // }
-                                    if (date.isHidden) {
+                                    if (date.month != calendar.curMonth.month) {
+                                      // if (date.isHidden) {
                                       return Colors.grey[100];
                                     }
                                     return Colors.grey[160];
@@ -365,7 +432,8 @@ class _HomePageState extends State<HomePage> {
                                     // if (date.day == calendar.curDate.day) {
                                     //   return Colors.white;
                                     // }
-                                    if (date.isHidden) {
+                                    if (date.month != calendar.curMonth.month) {
+                                      // if (date.isHidden) {
                                       return Colors.grey[100];
                                     }
                                     return Colors.grey[160];
@@ -385,14 +453,31 @@ class _HomePageState extends State<HomePage> {
                                     // if (date.day == calendar.curDate.day) {
                                     //   return Colors.white;
                                     // }
-                                    if (date.isHidden) {
+                                    // if (date.isHidden) {
+                                    if (date.month != calendar.curMonth.month) {
                                       return Colors.grey[100];
                                     }
                                     return Colors.grey[160];
                                   })()),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                            )
+                            ),
+                            const SizedBox(
+                              height: 4,
+                            ),
+                            date.festival == "除夕"
+                                ? Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Positioned(
+                                          child: Container(
+                                        width: 8,
+                                        height: 8,
+                                        decoration: BoxDecoration(color: Colors.red, borderRadius: BorderRadius.circular(12)),
+                                      ))
+                                    ],
+                                  )
+                                : Container()
                           ])),
                         ),
                         Positioned(
@@ -413,7 +498,7 @@ class _HomePageState extends State<HomePage> {
                               if (date.restType == CalendarDateRestType.holidayWork) {
                                 return Colors.red.light;
                               }
-                              if (date.isHidden) {
+                              if (date.month != calendar.curMonth.month) {
                                 return Colors.grey[100];
                               }
                               return Colors.grey[160];
@@ -490,7 +575,9 @@ class _HomePageState extends State<HomePage> {
                               size: 24.0,
                             ),
                             onPressed: () {
-                              _scrollToCurMonth();
+                              // calendar.showToday();
+                              calendar.scrollToToday();
+                              // _scrollToCurMonth();
                             },
                           ),
                         ),
@@ -547,7 +634,7 @@ class _HomePageState extends State<HomePage> {
                               ),
                               const SizedBox(width: 48),
                               Tooltip(
-                                message: '今天',
+                                message: '今天 ${calendar.today.text}',
                                 displayHorizontally: true,
                                 useMousePosition: false,
                                 style: const TooltipThemeData(preferBelow: true),
@@ -557,7 +644,8 @@ class _HomePageState extends State<HomePage> {
                                     size: 36.0,
                                   ),
                                   onPressed: () {
-                                    calendar.setDate(DateTime.now());
+                                    calendar.setToday(DateTime.now());
+                                    calendar.showToday();
                                   },
                                 ),
                               ),
@@ -569,7 +657,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(
                       height: 24,
                     ),
-                    Expanded(child: buildMainCalendarView(calendar.curMonth)),
+                    Expanded(child: buildMainCalendarView()),
                   ]),
                 )),
           ],
