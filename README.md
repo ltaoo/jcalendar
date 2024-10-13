@@ -15,4 +15,4 @@
 2. 无需联网
 
 
-![应用截图](docs/screenshot1.png.png)
+![应用截图](docs/screenshot1.png)
